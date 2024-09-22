@@ -1,0 +1,419 @@
+---
+title: "Análisis de transacciones"
+author: "Diego Escanciano"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Objetivos (Preguntar)
+
+CASO FICTICIO: Empresa de medios de pago, con acceso a información de millones de transacciones, me pide que logre el objetivo de entender qué productos bancarios son los más utilizados.
+
+La empresa me proporciona direcatmente un archivo csv para poder ahacer mis análisis, y yo emplearé directamente R. Le sugiero de cara al futuro, poder emplear un API para accer directamente a la base de datos, con algún lenguaje estucturado SQL y no trabajar de forma "manual" con archivos csv.
+
+Entonces la preguntas que hago, son las siguientes:
+
+Pregunta empresarial: ¿Cómo influyen los descuentos, las categorías de productos y los métodos de pago en los hábitos de compra de los clientes?
+
+Preguntas clave:
+
+- ¿Qué productos tienen la mayor demanda y cuál es su relación con los descuentos?
+- ¿Cómo varían las ventas según la ubicación de la tienda y la categoría de producto?
+- ¿Cuál es el impacto de los descuentos aplicados en el comportamiento del cliente y el total gastado?
+- ¿Qué método de pago prefieren los clientes para ciertos tipos de productos?
+
+# Fuente de los datos (Preparar)
+
+Los datos que usaremos en este caso práctico se pueden encontrar publicamente en Kaggle (https://www.kaggle.com/datasets/fahadrehman07/retail-transaction-dataset), una plataforma conocida por alojar conjuntos de datos abiertos y de calidad para análisis de datos. En el caso particular de este análisis los datos se ubican en un archivo .csv localizado en la dirección local de mi ordenador: "C:/Users/diego/Documents/Proyectos de datos/Datos_csv/Retail_Transaction_Dataset.csv".
+
+En el caso ficticio consideramos que no hay sesgo en los datos porque las transacciones realizadas se resgistran de forma automática e independiente en la base de datos. Podría haber problemas de credibilidad en caso de errores, pero en estos casos tampoco es que podamos hacer mucho.
+
+Los datos están organizados en un formato tabular con columnas que contienen información sobre transacciones minoristas, incluyendo el ID de cliente, ID de producto, cantidad, precio, método de pago, entre otros. Cada fila representa una transacción única.
+
+Como estamos trabajando con datos anónimos por ejemplo, al usar IDs de cliente en lugar de nombres o PANs de la tarjetas de los clientes, el riesgo de privacidad es bajo.
+
+En el próximo paso verificaremos la integridad de los datos comprobando si hay valores faltantes o duplicados, asegurándonos de que las fechas estén en el formato correcto, que los campos numéricos no tengan errores y que las transacciones estén registradas de manera coherente.
+
+Estos datos son valiosos para analizar el comportamiento del cliente, los patrones de compra según el método de pago, el impacto de los descuentos en las ventas, entre otros. Ayudan a responder preguntas como: ¿Qué productos se compran más? o ¿Qué métodos de pago prefieren los clientes?
+
+# Carga de los datos (Procesar)
+
+Vamos a proceder a la limpieza de los datos en el lenguaje de programación de R.
+
+```{r}
+# Cargar librerías necesarias
+library(ggplot2)
+library(dplyr)
+library(lubridate) # Fechas
+library(gridExtra) # Para hacer grids
+
+# Cargar el dataset
+df <- read.csv("C:/Users/diego/Documents/Proyectos de datos/Datos_csv/Retail_Transaction_Dataset.csv")
+
+# Ver las primeras filas del dataset
+head(df)
+
+
+```
+
+Aquí en primera instacia podemos observar que obtenemos varias columnas que nos serán de gran utilidad en el futuro para responder las preguntas de negocio.
+
+## Revisión de Calidad
+
+Vamos a realizar una revisión de calidad para asegurarnos de que los datos están corerectamente limpios y formateados.
+
+### Verificar valores faltantes
+
+Primero verificaremos si hay valores faltantes en las columnas que consideramos clave como TransactionDate, Price, Quantity, y TotalAmount:
+
+```{r}
+# Verificar valores faltantes en las columnas seleccionadas
+missing_values <- colSums(is.na(df[, c("TransactionDate", "Price", "Quantity", "TotalAmount")]))
+print(missing_values)
+
+
+# Mostrar las filas por si hubiera alguna
+df_with_na <- df %>% filter(is.na(TransactionDate) | is.na(Price) | is.na(Quantity) | is.na(TotalAmount))
+print(df_with_na)
+
+```
+
+En este caso no nos encontramos con valores faltantes y no tenemos que hacer nada. En caso contrario se podría o bien eliminar las filas o bien imputar los valores con algún método de imputación como la media o incluso empleando métodos predictivos más complejos.
+
+
+###  Verificar el formato de las fechas y asegurarse de que "Price" y "Quantity" sean numéricos.
+
+Primero convertiremos los valores de la fecha en formato "YYYY-MM-DD HH:mm:ss UTC", ya que esto nos dará mayor versatilidad a la hora de ralizar el análisis.
+```{r}
+
+# Convertimos las fechas utilizando el formato correcto: 
+df$TransactionDate <- mdy_hm(df$TransactionDate)
+
+# Mostrar las primeras filas para verificar las fechas convertidas
+head(df$TransactionDate)
+
+# ¿Hay filas que pudieron no convertirse?
+incorrect_dates <- df[is.na(df$TransactionDate),]
+print(incorrect_dates)
+```
+
+
+```{r}
+# ¿Price y Quantity numéricos?
+print(is.numeric(df$Price))   
+print(is.numeric(df$Quantity)) 
+
+# Por si acaso
+df$Price <- as.numeric(df$Price)
+df$Quantity <- as.numeric(df$Quantity)
+```
+
+### Revisar la consistencia en los nombres de "ProductCategory" y "PaymentMethod".
+
+Aquí queremos revisar si hay inconsistencias en las categorías de productos o métodos de pago, verificando valores únicos.
+
+```{r}
+# Que valores toman estas dos columnas
+unique(df$ProductCategory)
+unique(df$PaymentMethod)
+
+# Empleando la función "trimws" eliminariamos los espacios en blanco al principio y al final.
+df$ProductCategory <- trimws(df$ProductCategory)
+df$PaymentMethod <- trimws(df$PaymentMethod)
+
+```
+
+## Resumen de los pasos realizados:
+
+Para el análisis y limpieza de datos, estoy utilizando R, ya que ofrece poderosas bibliotecas como dplyr y lubridate para manipulación de datos y transformación de fechas, también se podría usar python que es un lenguaje en el que me siento muy cómodo. No obstante, R es particularmente útil para la limpieza de datos y transformación de grandes conjuntos de datos de manera eficiente, además de ser una excelente herramienta para visualización y análisis estadístico. No hay más que mencionar el gran uso de esta herramienta en asignaturas como Estadística y Probabilidad.
+
+Hemos garantizado la integridad de los datos cuando hemos revisado los valores faltantes en campos clave como TransactionDate, Price, Quantity y TotalAmount. Además, hemos verificado que las fechas tengan el formato correcto y que los campos numéricos como Price y Quantity estén en el tipo de dato adecuado (numéricos).
+
+Hemos documentado cada paso del proceso de limpieza, que incluye:
+- Identificación de valores faltantes y cómo se manejaron.
+- Conversión de fechas al formato correcto.
+- Eliminación de duplicados.
+- Revisión de las columnas categóricas y corrección de inconsistencias en los nombres.
+
+# Análisis de los datos (Analizar y compartir visualizaciones)
+
+
+##  Análisis: Distribución de transacciones por categoría de producto
+
+Empezaremos nuestro análisis visualizando algunas variables como la categoría del producto con el número de transacciones. La forma más sencilla y básica de hacerlo es con un gráfico de barras.
+
+```{r}
+# Gráfico de barras de ventas por categoría de producto
+ggplot(df, aes(x = ProductCategory)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribución de transacciones por categoría de producto",
+       x = "Categoría de Producto", 
+       y = "Número de Transacciones") +
+  theme_minimal()
+```
+Notamos que los productos en esta base de datos están deistribuidos de forma extrañamente uniforme. Esto puede deberse a que al ser un dataset de uso público los datos hayan sido creados de forma sintética. En cualquier caso, dado a esta distribución es conveniente respresentar los datos en un diagrama de sectores.
+
+```{r}
+# Transacciones por tipo de producto
+df_category <- df %>%
+  count(ProductCategory) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+# Gráfico de sectores
+ggplot(df_category, aes(x = "", y = percentage, fill = ProductCategory)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Distribución de transacciones por categoría de producto",
+       x = "Producto",
+       y = "Porcentaje",
+       fill = "Categoría de Producto") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            position = position_stack(vjust = 0.5), 
+            color = "black", size = 4) + 
+  scale_fill_brewer(palette = "Set3") +  
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  
+        panel.grid = element_blank(),  
+        panel.background = element_rect(fill = "white", color = NA),  
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 14))  
+```
+
+## Número de transacciones a lo largo del tiempo
+
+```{r}
+# Transacciones por día
+df_transactions_per_day <- df %>%
+  count(TransactionDate)
+
+ggplot(df_transactions_per_day, aes(x = TransactionDate, y = n, group = 1)) +  
+  geom_line(color = "steelblue", linewidth = 1) +  
+  labs(title = "Número de transacciones por día",
+       y = "Número de Transacciones") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  
+        axis.title.x = element_blank())  
+```
+Como el eje x es demasiado numeroso no somos capaces de ver mucho.Veamos mejor cómo queda este gráfico por meses.
+
+```{r}
+# Mes de TransactionDate
+df$Month <- format(df$TransactionDate, "%Y-%m")  # Formato Año-Mes
+
+# Transacciones por mes
+df_transactions_per_month <- df %>%
+  count(Month)
+
+ggplot(df_transactions_per_month, aes(x = Month, y = n, group = 1)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  labs(title = "Número de transacciones por mes",
+       y = "Número de Transacciones",
+       x = "Mes") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+Podemos observar como no hay una gran variación en los datos a lo largo de un año, practicamente se mantiene constante.
+
+```{r}
+# Filtrar los datos solo para, por ejemplo, el Q2.
+df_filtered <- df %>%
+  filter(format(TransactionDate, "%Y-%m") %in% c("2023-05", "2023-06", "2023-07", "2023-08"))  
+df_filtered$Week <- format(df_filtered$TransactionDate, "%Y-%U")
+
+# Transacciones por semana
+df_transactions_per_week <- df_filtered %>%
+  count(Week)
+
+ggplot(df_transactions_per_week, aes(x = Week, y = n, group = 1)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  labs(title = "Número de transacciones por semana Q2",
+       y = "Número de Transacciones",
+       x = "Semana") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+```
+Hay cierta estacioanalidad en las transacciones por semana.
+
+## Análisis: Relación entre el descuento aplicado y el monto total
+
+```{r}
+# Verificar nombres de las columnas
+colnames(df)
+```
+
+
+```{r}
+# Gráfico de dispersión del descuento vs. la cantidad total
+ggplot(df, aes(x = DiscountApplied..., y = TotalAmount)) +
+  geom_point(alpha = 0.5) +
+  labs(title = "Impacto del descuento aplicado en el total",
+       x = "Descuento Aplicado (%)",
+       y = "Cantidad Total") +
+  theme_minimal()
+```
+
+Observamos, como es lógico, que cuanto más porcentaje de descuento menos importe se paga.
+
+## Análisis: Preferencias de métodos de pago
+
+```{r}
+df_payment <- df %>%
+  count(PaymentMethod) %>%
+  mutate(percentage = n / sum(n) * 100)  
+
+# Otro gráfico de sectores
+ggplot(df_payment, aes(x = "", y = n, fill = PaymentMethod)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +  
+  coord_polar("y", start = 0) +
+  labs(title = "Preferencias de métodos de pago",
+       x = "Producto",  
+       y = "Porcentaje",  
+       fill = "Método de Pago") +
+  geom_text(aes(label = paste0(round(percentage, 1), "%")), 
+            position = position_stack(vjust = 0.5), 
+            color = "black", size = 4) +  
+  scale_fill_brewer(palette = "Set2") +  
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),  
+        panel.grid = element_blank(),  
+        panel.background = element_rect(fill = "white", color = NA),  
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 14))
+```
+De nuevo, por como es el dataframe, los métodos de pago son uniformes, lo que no tiene ningún sentido.
+
+## Análisis: número de transacciones por comercio
+
+Veamos primero cuantos comercios distintos hay en los datos:
+
+```{r}
+num_comercios <- df %>%
+  summarise(total_comercios = n_distinct(StoreLocation))
+
+num_comercios
+```
+Veamos los comercios con más transacciones
+
+```{r}
+top_10_comercios <- df %>%
+  count(StoreLocation) %>%        
+  arrange(desc(n)) %>%            
+  head(10)                        
+
+top_10_comercios
+
+```
+Desafortunadamente los comercios con más transacciones solo tienen una transaccion, lo que, de nuevo, no tiene mucho sentido.
+
+```{r}
+# ¿Cuántos tienen más de una transacción?
+comercios_multiples_transacciones <- df %>%
+  count(StoreLocation) %>%       
+  filter(n > 1)                  
+
+comercios_multiples_transacciones
+```
+
+
+## Distribución del descuento aplicado (%) con un gráfico de densidad
+
+```{r}
+# Gráfico de densidad para "DiscountApplied"
+density_plot <- ggplot(df, aes(x = DiscountApplied...)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  labs(title = "Distribución del Descuento Aplicado (%)", x = "Descuento Aplicado (%)", y = "Densidad") +
+  theme_minimal()
+
+grid.arrange(density_plot, nrow = 1)
+
+```
+
+## Distribución de los importes de las transacciones
+
+Veamos ahora otro gráfico para ver qué importes son los que más se repiten en nuestra base de datos.
+
+```{r}
+density_plot <- ggplot(df, aes(x = TotalAmount)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  labs(title = "Distribución de los importes", 
+       x = "TotalAmount", 
+       y = "Densidad") +
+  theme_minimal()
+
+box_plot <- ggplot(df, aes(x = TotalAmount)) +
+  geom_boxplot(fill = "steelblue") +
+  labs(title = "Distribución en Boxplot") +
+  theme_minimal()
+
+grid.arrange(density_plot, box_plot, nrow = 2)
+```
+
+Como la caja es un poco larga, hay más variación en los montos de la izquierda. Y además hay muchas transacciones con valores muy altos que son datos atípicos. Tiene un sesgo hacia la izquierda porque la mayoría de las transacciones se encuentran en intervalos alrededor de los 250.
+
+Veamos ahora la media y la mediana de los importes:
+
+```{r}
+# Media y mediana
+media <- mean(df$TotalAmount, na.rm = TRUE)
+mediana <- median(df$TotalAmount, na.rm = TRUE)
+
+media
+mediana
+
+```
+Veamos ahora el mismo gráfico pero filtrado por tipo de forma de pagar.
+
+```{r}
+# Crear los boxplots filtrados por método de pago
+ggplot(df, aes(x = PaymentMethod, y = TotalAmount, fill = PaymentMethod)) +
+  geom_boxplot() +
+  labs(title = "Distribución del Monto Total por Método de Pago",
+       x = "Método de Pago", 
+       y = "TotalAmount") +
+  theme_minimal() +
+  facet_wrap(~ PaymentMethod, nrow = 2) + 
+  theme(legend.position = "none") 
+```
+
+Observamos que este resultado no tiene ningun sentido, pues lo lógico es que se paguen importes inferiores con Efectivo y superiores con tarjeta. Desafortunadamente son los datos que tenemos.
+
+
+## Conclusiones del análisis
+
+Resumen del análisis:
+
+- Formateo y limpieza: Los datos se organizaron adecuadamente, con fechas formateadas y datos categóricos consistentes.
+- Observaciones: Los datos, aunque útiles para detectar estacionalidad en las transacciones, resultaron ser uniformes en otras áreas como los métodos de pago y las categorías de productos. Esto se debe a que son datos sintéticos extraídos de Kaggle, no datos reales.
+- Tendencias identificadas: Se identificó un patrón estacional en las transacciones por semana y día, con importes bajos predominantes.
+
+Conclusión: Aunque el análisis muestra algunas tendencias, los datos no permiten una exploración profunda de patrones más complejos, como el impacto de diferentes métodos de pago o productos en las ventas.
+
+Este análisis puede proporcionar un punto de partida, pero se recomienda usar un dataset más representativo del mundo real para obtener conclusiones empresariales más útiles.
+
+
+# Compartir los resultados y Actuar
+
+## Pregunta empresarial
+
+Se puede responder a las preguntas empresariales a través del análisis de los datos de transacciones por comercio, métodos de pago y categorías de producto pero desafortunadamente no logramos entender la dinámica de ventas debido a que los datos son claramente erróneos. 
+
+En mi caso ficticio volvería a preguntar si estos datos son correctos porque no tienen mucho sentido.
+
+Lamentablemente esto no responde a preguntas empresariales relacionadas con la planificación estratégica, como cuándo y dónde enfocar esfuerzos de marketing o promociones para maximizar ventas.
+
+## ¿Qué historia cuentan los datos?
+
+Los datos muestran que las transacciones tienden a ser de bajo importe y presentan un patrón estacional notable, con fluctuaciones semanales y diarias. Además, se observa que aunque la mayoría de los comercios tienen un bajo número de transacciones, unos pocos concentran un número mayor, destacándose en términos de actividad.
+
+## ¿Cómo podrían tu equipo y tu empresa aplicar tus conclusiones?
+
+Se me ocurren distintos casos en los que podría ser útil este análisis con los datos adecuados:
+
+- El equipo de marketing podría usar los hallazgos sobre la estacionalidad de las transacciones para programar campañas promocionales durante los picos de actividad.
+- El equipo de ventas podría centrarse en fortalecer relaciones con los comercios que generan un mayor volumen de transacciones, implementando estrategias de fidelización o acuerdos especiales.
+- Los equipos de operaciones podrían ajustar los inventarios según las tendencias de ventas, preparándose mejor para los momentos de alta demanda.
+
+## ¿Existen datos adicionales que podrías utilizar para ampliar tus hallazgos?
+
+- Datos de clientes: Agregar información demográfica sobre los clientes podría ayudar a segmentar mejor las estrategias de marketing.
+- Datos externos: Incorporar factores externos, como datos económicos o estacionales (festividades, vacaciones), podría mejorar la predicción de los picos de transacciones.
+- Datos de satisfacción del cliente: Evaluar la satisfacción del cliente por comercio podría ofrecer una visión más completa para mejorar la experiencia del cliente en los comercios clave.
+
