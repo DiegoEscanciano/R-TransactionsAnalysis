@@ -1,3 +1,11 @@
 # Fuerza a GitHub a reconocer archivos R y RMarkdown
 *.R linguist-language=R
 *.rmd linguist-language=RMarkdown
+*.Rmd linguist-language=RMarkdown
+
+# Ignorar archivos de configuración o temporales
+*.csv linguist-vendored
+*.xlsx linguist-vendored
+*.docx linguist-vendored
+*.Rhistory linguist-vendored
+*.RData linguist-vendored
